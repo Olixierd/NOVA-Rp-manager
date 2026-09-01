@@ -37,7 +37,6 @@ from datetime import datetime, timedelta
 # 1. CONFIGURATION GLOBALE & SÉCURITÉ
 # ==========================================
 
-# Récupération du token (Met ton nouveau token via variable ou directement)
 TOKEN = os.getenv("DISCORD_TOKEN", "METS_TON_NOUVEAU_TOKEN_ICI")
 
 # Identifiants des Rôles (NØVA RP)
@@ -100,6 +99,7 @@ def load_data():
             "fines": {},
             "blackmarket": {},
             "rp_services": {},
+            "properties": {},
             "ads": []
         }
     try:
@@ -119,13 +119,13 @@ active_rp_services = {}
 
 def check_user_db(user_id: str):
     user_id = str(user_id)
-    keys = ["economy", "inventories", "warns", "records", "staff_hours", "xp", "vehicles", "licenses", "fines", "blackmarket", "rp_services"]
+    keys = ["economy", "inventories", "warns", "records", "staff_hours", "xp", "vehicles", "licenses", "fines", "blackmarket", "rp_services", "properties"]
     for key in keys:
         if key not in db:
             db[key] = {}
 
     if user_id not in db["economy"]:
-        db["economy"][user_id] = {"wallet": 500, "bank": 2500, "daily_cooldown": 0, "rob_cooldown": 0, "work_cooldown": 0}
+        db["economy"][user_id] = {"wallet": 500, "bank": 2500, "daily_cooldown": 0, "rob_cooldown": 0, "work_cooldown": 0, "harvest_cooldown": 0}
     if user_id not in db["inventories"]:
         db["inventories"][user_id] = {}
     if user_id not in db["warns"]:
@@ -144,6 +144,8 @@ def check_user_db(user_id: str):
         db["blackmarket"][user_id] = {"coke": 0, "weed": 0, "meth": 0}
     if user_id not in db["rp_services"]:
         db["rp_services"][user_id] = 0
+    if user_id not in db["properties"]:
+        db["properties"][user_id] = []
 
     save_data()
 
@@ -295,8 +297,6 @@ class ServiceControlView(discord.ui.View):
         await interaction.response.edit_message(embed=build_service_embed(), view=self)
         await interaction.followup.send(f"✅ Service terminé (`{format_duration(net_seconds)}`).", ephemeral=True)
 
-# POINTEUSE RP (ENTREPRISES RP : LSPD, EMS, MÉCANO)
-
 class RPServiceView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -434,40 +434,6 @@ class TicketMainView(discord.ui.View):
 # 5. SESSIONS RP & LEBONCOIN RP
 # ==========================================
 
-class SessionModal(discord.ui.Modal, title="📢 Lancer une Session RP"):
-    lieu = discord.ui.TextInput(label="Lieu de Rassemblement", default="Concessionnaire Principal", min_length=2)
-    theme = discord.ui.TextInput(label="Thème / Type de RP", default="Session RP Ouverte", min_length=2)
-    notes = discord.ui.TextInput(
-        label="Consignes & Détails",
-        style=discord.TextStyle.paragraph,
-        default="🔥 Rejoignez-nous pour une session RP inédite sur NØVA RP !",
-        required=True
-    )
-
-    async def on_submit(self, interaction: discord.Interaction):
-        role_citoyen = interaction.guild.get_role(ROLE_CITOYENS_ID)
-        ping_str = role_citoyen.mention if role_citoyen else "@everyone"
-
-        embed = discord.Embed(
-            title="🚀 NØVA RP • SESSION RP OUVERTE !",
-            description=(
-                f"La ville de **NØVA RP** ouvre officiellement ses portes !\n\n"
-                f"────────── **INFORMATIONS SESSION** ──────────\n"
-                f"📍 **Lieu de rendez-vous :** `{self.lieu.value}`\n"
-                f"🎭 **Thème :** `{self.theme.value}`\n"
-                f"⏰ **Statut :** `En Cours`\n\n"
-                f"────────── **CONSIGNES & INFORMATIONS** ──────────\n"
-                f"```{self.notes.value}```"
-            ),
-            color=COLOR_SUCCESS,
-            timestamp=datetime.now()
-        )
-        embed.set_thumbnail(url=LOGO_URL)
-        embed.set_footer(text="NØVA RP • Bon jeu à tous !", icon_url=LOGO_URL)
-
-        await interaction.channel.send(content=f"🔔 {ping_str}", embed=embed)
-        await interaction.response.send_message("✅ Annonce publiée avec succès !", ephemeral=True)
-
 class AdModal(discord.ui.Modal, title="📢 Petite Annonce Leboncoin RP"):
     title_ad = discord.ui.TextInput(label="Titre de l'annonce", min_length=5)
     price = discord.ui.TextInput(label="Prix demandé ($)", placeholder="Ex: 15000")
@@ -536,6 +502,15 @@ class ShopView(discord.ui.View):
 # 7. COMMANDES PRINCIPALES DU BOT
 # ==========================================
 
+@bot.event
+async def on_ready():
+    print(f"🤖 Bot connecté en tant que : {bot.user.name} ({bot.user.id})")
+    try:
+        synced = await bot.tree.sync()
+        print(f"⚡ Synchros des commandes Slash : {len(synced)} commandes actived.")
+    except Exception as e:
+        print(f"⚠️ Erreur de sync Slash Commands : {e}")
+
 # --- GESTION SERVICES STAFF & SETUP ---
 
 @bot.command()
@@ -567,11 +542,30 @@ async def ticket_setup(ctx):
     embed.set_thumbnail(url=LOGO_URL)
     await ctx.send(embed=embed, view=TicketMainView())
 
+# COMMANDE SESSION CORRIGÉE (ENVOI DIRECT)
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def session(ctx):
     await ctx.message.delete()
-    await ctx.send_modal(SessionModal())
+    role_citoyen = ctx.guild.get_role(ROLE_CITOYENS_ID)
+    ping_str = role_citoyen.mention if role_citoyen else "@everyone"
+
+    embed = discord.Embed(
+        title="🚨 NØVA RP • LA SESSION EST OUVERTE !",
+        description=(
+            f"La session RP sur **NØVA RP (Roblox)** vient officiellement de lancer ses portes !\n\n"
+            f"📌 **Message de la Direction :**\n"
+            f"La session Nova RP est ouverte ! Rejoignez le serveur dès maintenant pour lancer vos scènes RP !\n\n"
+            f"🎮 **Serveur Roblox :** Connectez-vous via l'accès au jeu.\n"
+            f"⚠️ **Rappel :** Respectez scrupuleusement le règlement de la ville en scène."
+        ),
+        color=COLOR_SUCCESS,
+        timestamp=datetime.now()
+    )
+    embed.set_thumbnail(url=LOGO_URL)
+    embed.set_footer(text="NØVA RP • Bon jeu à tous !", icon_url=LOGO_URL)
+
+    await ctx.send(content=f"🔔 {ping_str}", embed=embed)
 
 @bot.command()
 @commands.has_permissions(administrator=True)
@@ -600,6 +594,27 @@ async def staff_leaderboard(ctx):
             name = user.display_name if user else f"ID: {u_id}"
             txt += f"**#{i} {name}** — `{format_duration(sec)}`\n"
         embed.description = txt
+    await ctx.send(embed=embed)
+
+# --- COMMANDES D'ADMINISTRATION ÉCONOMIE ---
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def addmoney(ctx, member: discord.Member, amount: int):
+    if amount <= 0:
+        return await ctx.send("❌ Le montant doit être supérieur à 0.")
+    
+    uid = str(member.id)
+    check_user_db(uid)
+
+    db["economy"][uid]["bank"] += amount
+    save_data()
+
+    embed = discord.Embed(
+        title="🏦 Injection Bancaire Administration",
+        description=f"✅ `{amount}$` ont été ajoutés sur le compte bancaire de {member.mention}.",
+        color=COLOR_SUCCESS
+    )
     await ctx.send(embed=embed)
 
 # --- SYSTEME ÉCONOMIQUE, BRAQUAGES & ILLÉGAL ---
@@ -773,279 +788,139 @@ async def shop(ctx):
     await ctx.send(embed=embed, view=ShopView())
 
 @bot.command()
-async def inventory(ctx):
-    uid = str(ctx.author.id)
-    check_user_db(uid)
-
-    inv = db["inventories"][uid]
-    embed = discord.Embed(title=f"🎒 Inventaire RP • {ctx.author.display_name}", color=COLOR_GOLD)
-
-    if not inv:
-        embed.description = "*Votre sac est totalement vide.*"
-    else:
-        lines = [f"• **{item}** x`{qty}`" for item, qty in inv.items() if qty > 0]
-        embed.description = "\n".join(lines) if lines else "*Votre sac est totalement vide.*"
-
-    await ctx.send(embed=embed)
-
-# --- PERMIS, LICENCES & CASIER LSPD ---
-
-@bot.command()
-async def licenses(ctx, member: discord.Member = None):
+async def inventory(ctx, member: discord.Member = None):
     target = member or ctx.author
     uid = str(target.id)
     check_user_db(uid)
 
-    lic = db["licenses"][uid]
-    embed = discord.Embed(title=f"🪪 Licences & Permis • {target.display_name}", color=COLOR_INFO)
-    embed.add_field(name="🚗 Permis de Conduire", value="✅ Valide" if lic.get("drive") else "❌ Suspendu/Non possédé", inline=False)
-    embed.add_field(name="🔫 Permis Port d'Armes (PPA)", value="✅ Valide" if lic.get("weapon") else "❌ Non possédé", inline=False)
-    embed.add_field(name="✈️ Licence de Vol", value="✅ Valide" if lic.get("fly") else "❌ Non possédée", inline=False)
-    await ctx.send(embed=embed)
-
-@bot.command()
-@commands.has_permissions(kick_members=True)
-async def give_license(ctx, member: discord.Member, lic_type: str):
-    lic_type = lic_type.lower()
-    if lic_type not in ["drive", "weapon", "fly"]:
-        return await ctx.send("❌ Type invalide. Choix : `drive`, `weapon`, `fly`")
-
-    uid = str(member.id)
-    check_user_db(uid)
-    db["licenses"][uid][lic_type] = True
-    save_data()
-    await ctx.send(f"✅ Licence `{lic_type}` accordée à **{member.display_name}**.")
-
-@bot.command()
-@commands.has_permissions(kick_members=True)
-async def revoke_license(ctx, member: discord.Member, lic_type: str):
-    lic_type = lic_type.lower()
-    if lic_type not in ["drive", "weapon", "fly"]:
-        return await ctx.send("❌ Type invalide. Choix : `drive`, `weapon`, `fly`")
-
-    uid = str(member.id)
-    check_user_db(uid)
-    db["licenses"][uid][lic_type] = False
-    save_data()
-    await ctx.send(f"⚠️ Licence `{lic_type}` retirée à **{member.display_name}**.")
-
-@bot.command()
-@commands.has_permissions(kick_members=True)
-async def add_fine(ctx, member: discord.Member, amount: int, *, reason: str):
-    uid = str(member.id)
-    check_user_db(uid)
-
-    db["fines"][uid].append({"amount": amount, "reason": reason, "date": datetime.now().strftime("%d/%m/%Y")})
-    save_data()
-
-    embed = discord.Embed(title="📜 Nouvelle Amende LSPD", color=COLOR_DANGER)
-    embed.add_field(name="Contrevenant", value=member.mention)
-    embed.add_field(name="Montant", value=f"`{amount}$`")
-    embed.add_field(name="Motif", value=reason)
-    embed.set_footer(text=f"Agent : {ctx.author.display_name}")
-    await ctx.send(embed=embed)
-
-@bot.command()
-async def fines(ctx):
-    uid = str(ctx.author.id)
-    check_user_db(uid)
-
-    user_fines = db["fines"][uid]
-    embed = discord.Embed(title=f"🧾 Vos Amendes Impayées", color=COLOR_DANGER)
-
-    if not user_fines:
-        embed.description = "*Vous n'avez aucune amende en attente.*"
+    inv = db["inventories"].get(uid, {})
+    embed = discord.Embed(title=f"🎒 Inventaire RP • {target.display_name}", color=COLOR_PRIMARY)
+    
+    if not inv or sum(inv.values()) == 0:
+        embed.description = "*Votre sac à dos est vide.*"
     else:
-        total = sum(f["amount"] for f in user_fines)
-        txt = ""
-        for i, f in enumerate(user_fines, 1):
-            txt += f"**#{i}** `{f['amount']}$` — {f['reason']} ({f['date']})\n"
-        embed.description = txt
-        embed.add_field(name="Total à régler", value=f"`{total}$` (`!pay_fines` pour tout régler)")
+        items_desc = []
+        for item, count in inv.items():
+            if count > 0:
+                items_desc.append(f"• **{item}** : `{count}`")
+        embed.description = "\n".join(items_desc) if items_desc else "*Votre sac à dos est vide.*"
 
+    embed.set_thumbnail(url=target.display_avatar.url)
     await ctx.send(embed=embed)
 
+# --- NOUVELLES COMMANDES AJOUTÉES (ILLÉGAL, IMMOBILIER & LSPD) ---
+
 @bot.command()
-async def pay_fines(ctx):
+async def harvest(ctx):
+    """Commande pour le serveur Nova RP Illégal : Récolte de pochons"""
     uid = str(ctx.author.id)
     check_user_db(uid)
 
-    user_fines = db["fines"][uid]
-    if not user_fines:
-        return await ctx.send("❌ Vous n'avez aucune amende à payer.")
-
-    total = sum(f["amount"] for f in user_fines)
-    if db["economy"][uid]["bank"] < total:
-        return await ctx.send(f"❌ Fonds insuffisants en banque pour régler les `{total}$` d'amendes.")
-
-    db["economy"][uid]["bank"] -= total
-    db["fines"][uid] = []
-    save_data()
-    await ctx.send(f"✅ Toutes vos amendes (`{total}$`) ont été réglées par virement bancaire.")
-
-# --- VÉHICULES & ANNONCES CITOYENNES ---
-
-@bot.command()
-async def buy_vehicle(ctx, model: str):
-    prices = {"zentorno": 150000, "sultan": 45000, "panto": 10000, "baller": 65000, "t20": 250000, "sanchez": 20000}
-    model = model.lower()
-
-    if model not in prices:
-        return await ctx.send(f"❌ Modèle non répertorié. Choix : `{', '.join(prices.keys())}`")
-
-    cost = prices[model]
-    uid = str(ctx.author.id)
-    check_user_db(uid)
-
-    if db["economy"][uid]["bank"] < cost:
-        return await ctx.send("❌ Fonds insuffisants en banque.")
-
-    db["economy"][uid]["bank"] -= cost
-    plate = f"NV-{random.randint(100, 999)}-RP"
-    db["vehicles"][uid].append({"model": model.upper(), "plate": plate})
-    save_data()
-
-    await ctx.send(f"🚗 Véhicule **{model.upper()}** acheté avec succès ! Plaque immatriculée : `{plate}`.")
-
-@bot.command()
-async def garage(ctx):
-    uid = str(ctx.author.id)
-    check_user_db(uid)
-
-    vehs = db["vehicles"][uid]
-    embed = discord.Embed(title=f"🚘 Garage Personnel • {ctx.author.display_name}", color=COLOR_PRIMARY)
-    if not vehs:
-        embed.description = "*Aucun véhicule enregistré dans le garage.*"
-    else:
-        lines = [f"• **{v['model']}** — Plaque : `{v['plate']}`" for v in vehs]
-        embed.description = "\n".join(lines)
-    await ctx.send(embed=embed)
-
-@bot.command()
-async def leboncoin(ctx):
-    await ctx.send_modal(AdModal())
-
-# --- MODÉRATION AVANCÉE & ADMINISTRATION ---
-
-@bot.command()
-@commands.has_permissions(kick_members=True)
-async def timeout(ctx, member: discord.Member, minutes: int, *, reason: str = "Aucune raison"):
-    duration = timedelta(minutes=minutes)
-    await member.timeout(duration, reason=reason)
-    await ctx.send(f"🔇 {member.mention} a été mis en sourdine pour **{minutes} minutes**. Raison : {reason}")
-
-@bot.command()
-@commands.has_permissions(manage_channels=True)
-async def lock(ctx):
-    await ctx.channel.set_permissions(ctx.guild.default_role, send_messages=False)
-    await ctx.send("🔒 Le salon a été verrouillé par le staff.")
-
-@bot.command()
-@commands.has_permissions(manage_channels=True)
-async def unlock(ctx):
-    await ctx.channel.set_permissions(ctx.guild.default_role, send_messages=True)
-    await ctx.send("🔓 Le salon est de nouveau ouvert.")
-
-@bot.command()
-@commands.has_permissions(kick_members=True)
-async def warn(ctx, member: discord.Member, *, reason: str = "Aucune raison"):
-    uid = str(member.id)
-    check_user_db(uid)
-
-    db["warns"][uid].append(reason)
-    save_data()
-
-    await ctx.send(f"⚠️ {member.mention} a reçu un avertissement : **{reason}** (Total : {len(db['warns'][uid])})")
-
-@bot.command()
-async def warnings(ctx, member: discord.Member):
-    uid = str(member.id)
-    check_user_db(uid)
-    w = db["warns"][uid]
-
-    embed = discord.Embed(title=f"⚠️ Avertissements de {member.display_name}", color=COLOR_GOLD)
-    embed.description = "\n".join([f"• {r}" for r in w]) if w else "Aucun avertissement."
-    await ctx.send(embed=embed)
-
-@bot.command()
-@commands.has_permissions(manage_messages=True)
-async def clear(ctx, amount: int = 5):
-    await ctx.channel.purge(limit=amount + 1)
-    await ctx.send(f"🧹 `{amount}` messages nettoyés.", delete_after=3)
-
-# ==========================================
-# 8. TÂCHES AUTOMATIQUES EN ARRIÈRE-PLAN
-# ==========================================
-
-@tasks.loop(minutes=5)
-async def check_long_services():
     now = time.time()
-    to_remove = []
+    last = db["economy"][uid].get("harvest_cooldown", 0)
+    if now - last < 1800:
+        remaining = 1800 - (now - last)
+        return await ctx.send(f"⏱️ Zone surveillée ! Revenez dans `{int(remaining // 60)} minutes`.")
 
-    for user_id, srv in list(active_services.items()):
-        if (now - srv["start_time"]) >= 86400:
-            to_remove.append(user_id)
+    gathered = random.randint(2, 6)
+    db["blackmarket"][uid]["weed"] = db["blackmarket"][uid].get("weed", 0) + gathered
+    db["economy"][uid]["harvest_cooldown"] = now
+    save_data()
 
-    for user_id in to_remove:
-        srv = active_services.pop(user_id)
-        net_seconds = (now - srv["start_time"]) - srv["total_pause"]
-        
-        uid_str = str(user_id)
-        check_user_db(uid_str)
-        db["staff_hours"][uid_str] = db["staff_hours"].get(uid_str, 0) + net_seconds
-        save_data()
+    await ctx.send(f"🌿 **{ctx.author.display_name}** a récolté `{gathered}x Pochons de Weed` en zone illégale.")
 
-        for guild in bot.guilds:
-            member = guild.get_member(user_id)
-            log_chan = discord.utils.get(guild.text_channels, name=SERVICE_LOG_CHANNEL)
-            if log_chan and member:
-                embed = discord.Embed(
-                    title="⚠️ Clôture Automatique (24h)",
-                    description=f"Le service de {member.mention} a été arrêté automatiquement après **24h**.",
-                    color=COLOR_DANGER
-                )
-                await log_chan.send(embed=embed)
-
-# ==========================================
-# 9. ÉVÉNEMENTS & INITIALISATION DU BOT
-# ==========================================
-
-@bot.event
-async def on_message(message):
-    if message.author.bot:
-        return
-
-    # Progression d'XP par activité
-    uid = str(message.author.id)
+@bot.command()
+async def sell_illegal(ctx):
+    """Commande pour le serveur Nova RP Illégal : Revente au marché noir"""
+    uid = str(ctx.author.id)
     check_user_db(uid)
+
+    weed_count = db["blackmarket"][uid].get("weed", 0)
+    if weed_count <= 0:
+        return await ctx.send("❌ Vous n'avez aucune marchandise à revendre.")
+
+    price_per_unit = random.randint(150, 300)
+    total_gain = weed_count * price_per_unit
+
+    db["blackmarket"][uid]["weed"] = 0
+    db["economy"][uid]["wallet"] += total_gain
+    save_data()
+
+    await ctx.send(f"🏴‍☠️ Revente effectuée ! Vous avez écoulé `{weed_count} pochons` pour un total de `{total_gain}$` en liquide !")
+
+@bot.command()
+async def buy_house(ctx, house_name: str, price: int):
+    """Commande pour le serveur Nova RP Immobilier : Achat de propriété"""
+    if price <= 0:
+        return await ctx.send("❌ Prix invalide.")
     
-    db["xp"][uid]["xp"] += random.randint(3, 10)
-    needed_xp = db["xp"][uid]["level"] * 120
+    uid = str(ctx.author.id)
+    check_user_db(uid)
+
+    if db["economy"][uid]["bank"] < price:
+        return await ctx.send(f"❌ Fonds insuffisants en banque ! Il vous faut `{price}$`.")
+
+    db["economy"][uid]["bank"] -= price
+    db["properties"][uid].append({"name": house_name, "bought_at": price, "date": str(datetime.now().strftime("%Y-%m-%d"))})
+    save_data()
+
+    embed = discord.Embed(
+        title="🏡 NØVA IMMOBILIER • Acte de Vente",
+        description=f"Félicitations {ctx.author.mention} !\nVous êtes désormais propriétaire du bien : **{house_name}** pour `{price}$`.",
+        color=COLOR_SUCCESS
+    )
+    await ctx.send(embed=embed)
+
+@bot.command()
+async def properties(ctx, member: discord.Member = None):
+    """Commande pour le serveur Nova RP Immobilier : Consulter ses propriétés"""
+    target = member or ctx.author
+    uid = str(target.id)
+    check_user_db(uid)
+
+    props = db["properties"].get(uid, [])
+    embed = discord.Embed(title=f"🏰 Patrimoine Immobilier • {target.display_name}", color=COLOR_GOLD)
     
-    if db["xp"][uid]["xp"] >= needed_xp:
-        db["xp"][uid]["level"] += 1
-        db["xp"][uid]["xp"] = 0
-        save_data()
+    if not props:
+        embed.description = "*Aucune propriété enregistrée.*"
+    else:
+        lines = [f"• **{p['name']}** (Acheté `{p['bought_at']}$` le {p['date']})" for p in props]
+        embed.description = "\n".join(lines)
 
-    await bot.process_commands(message)
+    await ctx.send(embed=embed)
 
-@bot.event
-async def on_ready():
-    # Vues Persistantes (Ne se désactivent pas au redémarrage)
-    bot.add_view(TicketMainView())
-    bot.add_view(TicketControlView())
-    bot.add_view(ServiceControlView())
-    bot.add_view(RPServiceView())
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def fine(ctx, member: discord.Member, amount: int, *, reason: str = "Non-respect du code RP"):
+    """Commande pour infliger une amende à un citoyen"""
+    if amount <= 0:
+        return await ctx.send("❌ Montant d'amende invalide.")
 
-    if not check_long_services.is_running():
-        check_long_services.start()
+    uid = str(member.id)
+    check_user_db(uid)
 
-    print(f"==========================================")
-    print(f"🔥 NØVA RP Bot connecté avec succès !")
-    print(f"🤖 Bot : {bot.user.name} (ID: {bot.user.id})")
-    print(f"📁 Sauvegarde globale JSON synchronisée.")
-    print(f"==========================================")
+    db["economy"][uid]["bank"] = max(0, db["economy"][uid]["bank"] - amount)
+    db["fines"][uid].append({"amount": amount, "reason": reason, "date": str(datetime.now().strftime("%Y-%m-%d %H:%M"))})
+    save_data()
 
-# Lancement du Bot
+    embed = discord.Embed(
+        title="⚖️ NØVA RP • Procès-Verbal d'Amende",
+        description=(
+            f"**Citoyen verbalisé :** {member.mention}\n"
+            f"**Montant de l'amende :** `{amount}$` (Prélevé en banque)\n"
+            f"**Motif :** `{reason}`\n"
+            f"**Agent / Staff :** {ctx.author.mention}"
+        ),
+        color=COLOR_DANGER
+    )
+    await ctx.send(embed=embed)
+
+# ==========================================
+# 8. LANCEMENT DU BOT
+# ==========================================
+
 if __name__ == "__main__":
-    bot.run("TOKEN")
+    if TOKEN == "METS_TON_NOUVEAU_TOKEN_ICI" or not TOKEN:
+        print("❌ VEUILLEZ RENSEIGNER UN TOKEN DISCORD VALIDE DANS LE SCRIPT OU LA VARIABLE D'ENVIRONNEMENT.")
+    else:
+        bot.run(TOKEN)
